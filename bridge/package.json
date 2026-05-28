@@ -1,0 +1,12 @@
+{
+  "name": "pi-agent-bridge",
+  "private": true,
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.76.0",
+    "@earendil-works/pi-ai": "0.76.0"
+  },
+  "trustedDependencies": [
+    "@google/genai",
+    "protobufjs"
+  ]
+}

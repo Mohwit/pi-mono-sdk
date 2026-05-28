@@ -1,0 +1,17 @@
+# Built bridge binaries
+bin/
+
+# Python package staging
+src/pi_agent/bin/
+
+# Python build artifacts
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Node / Bun
+node_modules/
+bridge/node_modules/
