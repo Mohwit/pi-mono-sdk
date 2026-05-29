@@ -33,6 +33,29 @@ const pendingApiKeys = new Map<
   { resolve: (k: string) => void; reject: (e: Error) => void }
 >();
 
+/** Pending beforeToolCall hooks — keyed by toolCallId. */
+const pendingBeforeTool = new Map<
+  string,
+  { resolve: (r: any) => void; reject: (e: Error) => void }
+>();
+
+/** Pending afterToolCall hooks — keyed by toolCallId. */
+const pendingAfterTool = new Map<
+  string,
+  { resolve: (r: any) => void; reject: (e: Error) => void }
+>();
+
+/** Pending transformContext hooks — keyed by bridge-generated request_id. */
+const pendingTransform = new Map<
+  string,
+  { resolve: (m: any[]) => void; reject: (e: Error) => void }
+>();
+
+let _txCounter = 0;
+function nextTxId(): string {
+  return `tx_${++_txCounter}`;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function send(obj: unknown): void {
@@ -98,6 +121,58 @@ function resolveApiKeyResult(msg: any): void {
   }
 }
 
+function resolveBeforeToolResult(msg: any): void {
+  const p = pendingBeforeTool.get(msg.id);
+  if (!p) return;
+  pendingBeforeTool.delete(msg.id);
+  if (msg.error) {
+    p.reject(new Error(msg.error));
+  } else {
+    p.resolve(msg.block ? { block: true, reason: msg.reason ?? "" } : undefined);
+  }
+}
+
+function resolveAfterToolResult(msg: any): void {
+  const p = pendingAfterTool.get(msg.id);
+  if (!p) return;
+  pendingAfterTool.delete(msg.id);
+  if (msg.error) {
+    p.reject(new Error(msg.error));
+  } else {
+    p.resolve(
+      msg.terminate            ? { terminate: true }
+      : msg.details !== undefined ? { details: msg.details }
+      : undefined,
+    );
+  }
+}
+
+function resolveTransformResult(msg: any): void {
+  const p = pendingTransform.get(msg.request_id);
+  if (!p) return;
+  pendingTransform.delete(msg.request_id);
+  if (msg.error) {
+    p.reject(new Error(msg.error));
+  } else {
+    p.resolve(msg.messages ?? []);
+  }
+}
+
+/** Reject all in-flight hook promises (called on stdin close / abort). */
+function rejectAllPending(reason: string): void {
+  const err = new Error(reason);
+  for (const p of pendingBeforeTool.values()) p.reject(err);
+  pendingBeforeTool.clear();
+  for (const p of pendingAfterTool.values()) p.reject(err);
+  pendingAfterTool.clear();
+  for (const p of pendingTransform.values()) p.reject(err);
+  pendingTransform.clear();
+  for (const p of pendingApiKeys.values()) p.reject(err);
+  pendingApiKeys.clear();
+  for (const p of pendingTools.values()) p.reject(err);
+  pendingTools.clear();
+}
+
 // ─── Readline + serial handler ────────────────────────────────────────────────
 
 const rl = createInterface({ input: process.stdin, terminal: false });
@@ -119,19 +194,17 @@ rl.on("line", (line: string) => {
 
   // Result messages resolve in-flight Promises inside agent.prompt()/continue().
   // They MUST bypass the serial chain — see resolveToolResult/resolveApiKeyResult.
-  if (parsed.type === "tool_result") {
-    resolveToolResult(parsed);
-    return;
-  }
-  if (parsed.type === "api_key_result") {
-    resolveApiKeyResult(parsed);
-    return;
-  }
+  if (parsed.type === "tool_result")              { resolveToolResult(parsed);       return; }
+  if (parsed.type === "api_key_result")           { resolveApiKeyResult(parsed);     return; }
+  if (parsed.type === "before_tool_call_result")  { resolveBeforeToolResult(parsed); return; }
+  if (parsed.type === "after_tool_call_result")   { resolveAfterToolResult(parsed);  return; }
+  if (parsed.type === "transform_context_result") { resolveTransformResult(parsed);  return; }
 
   chain = chain.then(() => handleLine(parsed)).catch(() => {});
 });
 
 rl.on("close", () => {
+  rejectAllPending("Bridge stdin closed");
   agent?.abort();
   process.stdout.end(() => process.exit(0));
 });
@@ -172,6 +245,41 @@ async function handleLine(msg: any): Promise<void> {
               const gakId = nextGakId();
               pendingApiKeys.set(gakId, { resolve, reject });
               send({ type: "get_api_key", request_id: gakId, provider });
+            });
+          };
+        }
+
+        // Wire beforeToolCall hook if Python has a callback
+        // ctx shape: { toolCall: { id, name, arguments }, args, assistantMessage, context }
+        if (opts.has_before_tool_call) {
+          agentOptions.beforeToolCall = async (ctx: any): Promise<any> => {
+            return new Promise<any>((resolve, reject) => {
+              const toolCallId = ctx.toolCall.id;
+              pendingBeforeTool.set(toolCallId, { resolve, reject });
+              send({ type: "before_tool_call", id: toolCallId, name: ctx.toolCall.name, params: ctx.args });
+            });
+          };
+        }
+
+        // Wire afterToolCall hook if Python has a callback
+        // ctx shape: { toolCall: { id, name, arguments }, args, result, isError, assistantMessage, context }
+        if (opts.has_after_tool_call) {
+          agentOptions.afterToolCall = async (ctx: any): Promise<any> => {
+            return new Promise<any>((resolve, reject) => {
+              const toolCallId = ctx.toolCall.id;
+              pendingAfterTool.set(toolCallId, { resolve, reject });
+              send({ type: "after_tool_call", id: toolCallId, name: ctx.toolCall.name, params: ctx.args, result: ctx.result, is_error: ctx.isError ?? false });
+            });
+          };
+        }
+
+        // Wire transformContext callback if Python has a callback
+        if (opts.has_transform_context) {
+          agentOptions.transformContext = async (messages: any[], _signal: AbortSignal): Promise<any[]> => {
+            return new Promise<any[]>((resolve, reject) => {
+              const txId = nextTxId();
+              pendingTransform.set(txId, { resolve, reject });
+              send({ type: "transform_context", request_id: txId, messages });
             });
           };
         }
@@ -275,6 +383,20 @@ async function handleLine(msg: any): Promise<void> {
         }
 
         (agent!.state as any)[msg.field] = value;
+        break;
+      }
+
+      // ── get_state ──────────────────────────────────────────────────────────
+      case "get_state": {
+        const state = (agent! as any).state as any;
+        send({
+          type: "state_result",
+          request_id,
+          messages:      state.messages ?? [],
+          systemPrompt:  state.systemPrompt ?? "",
+          model:         state.model,
+          thinkingLevel: state.thinkingLevel ?? null,
+        });
         break;
       }
 

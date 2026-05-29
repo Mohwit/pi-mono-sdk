@@ -13,11 +13,14 @@ import { $ } from "bun";
 // ─── Platform targets ─────────────────────────────────────────────────────────
 
 const ALL_TARGETS = [
-  { target: "bun-darwin-arm64", out: "pi-agent-bridge-darwin-arm64"  },
-  { target: "bun-darwin-x64",   out: "pi-agent-bridge-darwin-x64"    },
-  { target: "bun-linux-x64",    out: "pi-agent-bridge-linux-x64"     },
-  { target: "bun-linux-arm64",  out: "pi-agent-bridge-linux-arm64"   },
-  { target: "bun-windows-x64",  out: "pi-agent-bridge-win32-x64.exe" },
+  { target: "bun-darwin-arm64",     out: "pi-agent-bridge-darwin-arm64"      },
+  { target: "bun-darwin-x64",       out: "pi-agent-bridge-darwin-x64"        },
+  { target: "bun-linux-x64",        out: "pi-agent-bridge-linux-x64"         },
+  { target: "bun-linux-arm64",      out: "pi-agent-bridge-linux-arm64"       },
+  { target: "bun-linux-x64-musl",   out: "pi-agent-bridge-linux-x64-musl"   },
+  { target: "bun-linux-arm64-musl", out: "pi-agent-bridge-linux-arm64-musl" },
+  { target: "bun-windows-x64",      out: "pi-agent-bridge-win32-x64.exe"    },
+  { target: "bun-windows-arm64",    out: "pi-agent-bridge-win32-arm64.exe"  },
 ] as const;
 
 // Map from Bun target to the current-platform target string
@@ -27,6 +30,8 @@ const CURRENT_TARGET_MAP: Record<string, string> = {
   "linux x64":     "bun-linux-x64",
   "linux arm64":   "bun-linux-arm64",
   "win32 x64":     "bun-windows-x64",
+  "win32 arm64":   "bun-windows-arm64",
+  // musl targets are not auto-detected; musl devs run the full build manually
 };
 
 // ─── Paths ────────────────────────────────────────────────────────────────────
@@ -34,7 +39,9 @@ const CURRENT_TARGET_MAP: Record<string, string> = {
 const BRIDGE_ROOT = dirname(resolve(import.meta.path));
 const REPO_ROOT   = resolve(BRIDGE_ROOT, "..");
 const BIN_DIR     = resolve(REPO_ROOT, "bin");
+const DIST_DIR    = resolve(REPO_ROOT, "dist");
 const ENTRY       = resolve(BRIDGE_ROOT, "bridge.ts");
+const JS_OUT      = resolve(DIST_DIR, "bridge.js");
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,6 +87,16 @@ async function build(target: string, outName: string): Promise<void> {
   } else {
     console.log(`  OK: ${label}`);
   }
+}
+
+// ─── Node.js bundle ───────────────────────────────────────────────────────────
+
+async function buildNodeBundle(): Promise<void> {
+  console.log(`\nBundling Node.js fallback → ${JS_OUT} …`);
+  if (!existsSync(DIST_DIR)) mkdirSync(DIST_DIR, { recursive: true });
+  await $`bun build --target=node --minify ${ENTRY} --outfile ${JS_OUT}`;
+  if (!existsSync(JS_OUT)) throw new Error(`Node bundle not produced: ${JS_OUT}`);
+  console.log(`  Node bundle: ${formatSize(statSync(JS_OUT).size)}`);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -135,3 +152,11 @@ console.log(
 );
 
 if (failed > 0) process.exit(1);
+
+// Always build the Node.js fallback bundle (regardless of --current)
+try {
+  await buildNodeBundle();
+} catch (err: any) {
+  console.error(`  Node bundle FAILED: ${err?.message ?? err}`);
+  process.exit(1);
+}

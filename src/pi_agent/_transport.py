@@ -13,20 +13,44 @@ from ._errors import PiConnectionError
 
 # ─── Binary detection ─────────────────────────────────────────────────────────
 
-_BINARY_MAP: dict[tuple[str, str], str] = {
-    ("darwin", "arm64"):   "pi-agent-bridge-darwin-arm64",
-    ("darwin", "x86_64"):  "pi-agent-bridge-darwin-x64",
-    ("linux",  "x86_64"):  "pi-agent-bridge-linux-x64",
-    ("linux",  "aarch64"): "pi-agent-bridge-linux-arm64",
-    ("win32",  "AMD64"):   "pi-agent-bridge-win32-x64.exe",
+_BINARY_MAP: dict[tuple, str] = {
+    ("darwin",  "arm64"):             "pi-agent-bridge-darwin-arm64",
+    ("darwin",  "x86_64"):            "pi-agent-bridge-darwin-x64",
+    ("linux",   "x86_64"):            "pi-agent-bridge-linux-x64",
+    ("linux",   "aarch64"):           "pi-agent-bridge-linux-arm64",
+    ("linux",   "x86_64",  "musl"):   "pi-agent-bridge-linux-x64-musl",
+    ("linux",   "aarch64", "musl"):   "pi-agent-bridge-linux-arm64-musl",
+    ("win32",   "AMD64"):             "pi-agent-bridge-win32-x64.exe",
+    ("win32",   "ARM64"):             "pi-agent-bridge-win32-arm64.exe",
 }
 
 # Installed wheel places the binary here
-_PACKAGE_BIN_DIR = Path(__file__).parent / "bin"
+_PACKAGE_BIN_DIR  = Path(__file__).parent / "bin"
 # Local dev build places the binary here (repo root / bin)
-_REPO_BIN_DIR    = Path(__file__).parent.parent.parent / "bin"
+_REPO_BIN_DIR     = Path(__file__).parent.parent.parent / "bin"
 # Source for bun-run fallback
-_BRIDGE_SRC      = Path(__file__).parent.parent.parent / "bridge" / "bridge.ts"
+_BRIDGE_SRC       = Path(__file__).parent.parent.parent / "bridge" / "bridge.ts"
+# Node.js bundle locations
+_PACKAGE_DIST_DIR = Path(__file__).parent / "dist"
+_REPO_DIST_DIR    = Path(__file__).parent.parent.parent / "dist"
+_NODE_BUNDLE_NAME = "bridge.js"
+
+
+def _is_musl() -> bool:
+    """Detect whether the current Linux system uses musl libc (Alpine, etc.)."""
+    if sys.platform != "linux":
+        return False
+    musl_paths = ["/lib/libc.musl-x86_64.so.1", "/lib/libc.musl-aarch64.so.1"]
+    if any(Path(p).exists() for p in musl_paths):
+        return True
+    try:
+        import subprocess as _subprocess
+        r = _subprocess.run(
+            ["ldd", "--version"], capture_output=True, text=True, timeout=2
+        )
+        return "musl" in (r.stdout + r.stderr).lower()
+    except Exception:
+        return False
 
 
 def _ensure_executable(path: Path) -> None:
@@ -42,11 +66,16 @@ def _detect_command() -> list[str]:
       1. Compiled binary in <package>/bin/   (installed wheel)
       2. Compiled binary in <repo-root>/bin/ (local dev build)
       3. bun run bridge/bridge.ts            (bun in PATH + source present)
-      4. Raise PiConnectionError with actionable message
+      4. node dist/bridge.js                 (node in PATH + bundle present)
+      5. Raise PiConnectionError with actionable message
     """
     plat = sys.platform
     arch = platform.machine()
-    name = _BINARY_MAP.get((plat, arch))
+
+    if plat == "linux" and _is_musl():
+        name = _BINARY_MAP.get((plat, arch, "musl"))
+    else:
+        name = _BINARY_MAP.get((plat, arch))
 
     if name:
         for directory in (_PACKAGE_BIN_DIR, _REPO_BIN_DIR):
@@ -59,12 +88,20 @@ def _detect_command() -> list[str]:
     if bun and _BRIDGE_SRC.exists():
         return [bun, "run", str(_BRIDGE_SRC)]
 
+    node = shutil.which("node")
+    if node:
+        for dist_dir in (_PACKAGE_DIST_DIR, _REPO_DIST_DIR):
+            bundle = dist_dir / _NODE_BUNDLE_NAME
+            if bundle.exists() and bundle.stat().st_size > 0:
+                return [node, str(bundle)]
+
     raise PiConnectionError(
         f"No pi-agent-bridge found for {plat}/{arch}.\n"
         "  1. Install the platform wheel:  pip install pi-agent\n"
         f"  2. Build locally:               cd bridge && bun install && "
         "bun run build.ts --current\n"
-        "  3. Install Bun (dev fallback):  https://bun.sh"
+        "  3. Install Bun (dev fallback):   https://bun.sh\n"
+        "  4. Install Node.js + build bundle: bun run build.ts (produces dist/bridge.js)"
     )
 
 
