@@ -57,6 +57,12 @@ class PiAgentOptions:
     # v1: if set, bridge calls this callback for every API key request;
     # if None, the bridge relies on provider env vars (ANTHROPIC_API_KEY, etc.)
     get_api_key: Callable[[str], Awaitable[str]] | None = None
+    # v2: called before each tool execution; return {"block": True, "reason": "..."} to prevent it
+    before_tool_call: Callable[[dict], Awaitable[dict | None]] | None = None
+    # v2: called after each tool execution; return {"terminate": True} or {"details": dict} optionally
+    after_tool_call: Callable[[dict], Awaitable[dict | None]] | None = None
+    # v2: called before each LLM request to transform the message context
+    transform_context: Callable[[list[dict]], Awaitable[list[dict]]] | None = None
 
 
 @dataclass

@@ -6,8 +6,33 @@ build-backend = "hatchling.build"
 name = "pi-agent"
 version = "0.1.0"
 description = "Python interface to the pi-agent-core TypeScript SDK"
+readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+license = { text = "MIT" }
+keywords = ["ai", "agent", "llm", "anthropic", "openai", "coding-assistant"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "prompt_toolkit>=3.0",
+]
+
+[project.urls]
+Repository = "https://github.com/your-org/pi-mono-sdk"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pi_agent"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+# nothing here — binaries are inside the package directory itself
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/pi_agent/bin" = "pi_agent/bin"
+"src/pi_agent/dist" = "pi_agent/dist"
