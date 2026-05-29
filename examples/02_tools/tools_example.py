@@ -50,6 +50,10 @@ async def calculate(params: dict) -> dict:
     expression = params["expression"]
     try:
         allowed = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
+        # SECURITY NOTE: eval() with __builtins__={} is NOT a full sandbox in CPython.
+        # Class-hierarchy escapes (e.g. ().__class__.__bases__[0].__subclasses__()) can
+        # bypass it.  This is acceptable for a local demo tool; for production use a
+        # proper expression parser such as `simpleeval` or `numexpr`.
         result  = eval(expression, {"__builtins__": {}}, allowed)  # noqa: S307
         return {"content": [{"type": "text", "text": f"{expression} = {result}"}]}
     except Exception as e:

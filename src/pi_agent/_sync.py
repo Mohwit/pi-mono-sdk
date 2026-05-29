@@ -40,6 +40,23 @@ class SyncPiAgent:
     # ─── Lifecycle ────────────────────────────────────────────────────────────
 
     def __enter__(self) -> "SyncPiAgent":
+        # Detect an already-running event loop (e.g. Jupyter / IPython).
+        # asyncio.run_coroutine_threadsafe requires the loop to be running in
+        # a *different* thread — if the caller's thread already owns a loop,
+        # SyncPiAgent will deadlock.  Raise early with an actionable message.
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is not None:
+            raise RuntimeError(
+                "SyncPiAgent cannot be used inside a running event loop (e.g. Jupyter / asyncio.run). "
+                "Use the async PiAgent instead:\n\n"
+                "    async with PiAgent(options) as agent:\n"
+                "        async for event in agent.prompt('Hello'): ...\n\n"
+                "In Jupyter you can also prefix a cell with %%python -c or use nest_asyncio."
+            )
+
         self._loop  = asyncio.new_event_loop()
         self._agent = PiAgent(self._options)
 

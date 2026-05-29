@@ -262,13 +262,33 @@ class AgentCLI:
 
     # ── output helpers ──────────────────────────────────────────────────────────
 
+    # Maximum lines retained in the output buffer.  Beyond this, the oldest
+    # lines are dropped to keep render latency constant in long sessions.
+    _MAX_LINES = 10_000
+
     def _w(self, *pairs: tuple[str, str], flush: bool = True) -> None:
         """Append (style, text) pairs to the output buffer."""
         for pair in pairs:
             self._frags.append(pair)
             self._line_count += pair[1].count("\n")
+        # Trim oldest content if we've grown past the cap.
+        if self._line_count > self._MAX_LINES:
+            self._trim_frags()
         if flush and self._app:
             self._app.invalidate()
+
+    def _trim_frags(self) -> None:
+        """Drop the oldest lines so _line_count stays at or below _MAX_LINES."""
+        target = self._MAX_LINES - self._MAX_LINES // 10  # keep 90 %
+        lines_seen = 0
+        for i in range(len(self._frags) - 1, -1, -1):
+            lines_seen += self._frags[i][1].count("\n")
+            if lines_seen >= target:
+                self._frags = self._frags[i:]
+                self._line_count = lines_seen
+                return
+        # Shouldn't reach here, but just in case reset fully
+        self._line_count = sum(f[1].count("\n") for f in self._frags)
 
     def _wl(self, *pairs: tuple[str, str], flush: bool = True) -> None:
         """Append pairs then a newline."""

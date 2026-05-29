@@ -42,7 +42,8 @@ async def get_current_time(params: dict) -> dict:
 async def calculate(params: dict) -> dict:
     expression = params["expression"]
     try:
-        # Safe eval: only math operations
+        # NOTE: eval() with __builtins__={} is NOT a full CPython sandbox — class-hierarchy
+        # escapes can bypass it.  Fine for a local demo; use `simpleeval` in production.
         allowed = {k: getattr(math, k) for k in dir(math) if not k.startswith("_")}
         result = eval(expression, {"__builtins__": {}}, allowed)  # noqa: S307
         return {"content": [{"type": "text", "text": f"{expression} = {result}"}]}

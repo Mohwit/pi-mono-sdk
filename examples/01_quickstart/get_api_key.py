@@ -22,7 +22,7 @@ Use cases shown:
   4. Audit + rotation   — log key usage and refresh on a timer
 
 Run:
-  python examples/get_api_key.py [local|vault|audit]
+  python examples/01_quickstart/get_api_key.py [local|vault|audit]
 
 Requires Ollama:
   ollama serve && ollama pull llama3.1

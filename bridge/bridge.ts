@@ -125,18 +125,26 @@ function resolveBeforeToolResult(msg: any): void {
   const p = pendingBeforeTool.get(msg.id);
   if (!p) return;
   pendingBeforeTool.delete(msg.id);
-  p.resolve(msg.block ? { block: true, reason: msg.reason ?? "" } : undefined);
+  if (msg.error) {
+    p.reject(new Error(msg.error));
+  } else {
+    p.resolve(msg.block ? { block: true, reason: msg.reason ?? "" } : undefined);
+  }
 }
 
 function resolveAfterToolResult(msg: any): void {
   const p = pendingAfterTool.get(msg.id);
   if (!p) return;
   pendingAfterTool.delete(msg.id);
-  p.resolve(
-    msg.terminate        ? { terminate: true }
-    : msg.details !== undefined ? { details: msg.details }
-    : undefined,
-  );
+  if (msg.error) {
+    p.reject(new Error(msg.error));
+  } else {
+    p.resolve(
+      msg.terminate            ? { terminate: true }
+      : msg.details !== undefined ? { details: msg.details }
+      : undefined,
+    );
+  }
 }
 
 function resolveTransformResult(msg: any): void {
@@ -148,6 +156,21 @@ function resolveTransformResult(msg: any): void {
   } else {
     p.resolve(msg.messages ?? []);
   }
+}
+
+/** Reject all in-flight hook promises (called on stdin close / abort). */
+function rejectAllPending(reason: string): void {
+  const err = new Error(reason);
+  for (const p of pendingBeforeTool.values()) p.reject(err);
+  pendingBeforeTool.clear();
+  for (const p of pendingAfterTool.values()) p.reject(err);
+  pendingAfterTool.clear();
+  for (const p of pendingTransform.values()) p.reject(err);
+  pendingTransform.clear();
+  for (const p of pendingApiKeys.values()) p.reject(err);
+  pendingApiKeys.clear();
+  for (const p of pendingTools.values()) p.reject(err);
+  pendingTools.clear();
 }
 
 // ─── Readline + serial handler ────────────────────────────────────────────────
@@ -181,6 +204,7 @@ rl.on("line", (line: string) => {
 });
 
 rl.on("close", () => {
+  rejectAllPending("Bridge stdin closed");
   agent?.abort();
   process.stdout.end(() => process.exit(0));
 });

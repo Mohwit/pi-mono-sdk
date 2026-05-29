@@ -13,13 +13,13 @@ Connect any LLM (Anthropic Claude, OpenAI GPT, local Ollama models) to Python to
 A ready-to-install wheel is provided in the `package/` directory:
 
 ```bash
-pip install pi_agent-0.1.0-v1-py3-none-any.whl
+pip install pi_agent-0.1.0-py3-none-any.whl
 ```
 
 If you received the file directly:
 
 ```bash
-pip install /path/to/pi_agent-0.1.0-v1-py3-none-any.whl
+pip install /path/to/pi_agent-0.1.0-py3-none-any.whl
 ```
 
 ### From PyPI (when published)
@@ -118,7 +118,7 @@ EOF
 | Symptom | Fix |
 |---------|-----|
 | `PiConnectionError: No pi-agent-bridge found` | Install Node.js ≥ 18 (`brew install node` / `apt install nodejs`) or use the correct platform wheel |
-| `ModuleNotFoundError: No module named 'pi_agent'` | Re-run `pip install pi_agent-0.1.0-v1-py3-none-any.whl` |
+| `ModuleNotFoundError: No module named 'pi_agent'` | Re-run `pip install pi_agent-0.1.0-py3-none-any.whl` |
 | Blank / empty AI responses with Ollama | Ensure `get_api_key` callback is provided and returns a non-empty string |
 | `ANTHROPIC_API_KEY` not found | Export the environment variable before running |
 

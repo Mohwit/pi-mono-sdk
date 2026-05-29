@@ -102,3 +102,11 @@ Prefix any shell command with `!` to run it directly:
 ❯ ! python -m pytest tests/
 ❯ ! cat pyproject.toml
 ```
+
+## Security notice
+
+> **The `run_command` tool gives the model unrestricted shell access on your machine.**
+> Only use the CLI agent with models and sessions you trust.
+> The `delete_file` tool deletes recursively with no confirmation — the agent's
+> system prompt instructs it to confirm before deleting, but you should verify
+> sensitive operations before they execute.
